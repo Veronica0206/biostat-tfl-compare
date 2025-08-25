@@ -4,6 +4,7 @@
 ## Overview / Purpose  
 
 `biostat-tfl-compare` is designed to support statisticians and programmers in efficiently reviewing RTF outputs.  
+
 Although often used in the context of **clinical trial TFLs**, the tool is equally applicable to **RWE** and **HEOR** deliverables, or any workflow where outputs are delivered in RTF format.  
 
 By providing side-by-side and bulk comparison of RTF files, this app helps ensure consistency, accuracy, and transparency in reporting.  
