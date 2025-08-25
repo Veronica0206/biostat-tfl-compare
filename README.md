@@ -1,6 +1,9 @@
 # biostat-tfl-compare  
 *A Shiny application for quality oversight of TFL outputs, enabling RTF file and directory comparisons with detailed HTML and CSV diff reports.*  
 
+- **File-level comparison** — side-by-side review of two RTF files with detailed HTML diff reports.  
+- **Folder-level comparison** — bulk comparison of two directories, matching files by name and highlighting differences in content, structure, or formatting.  
+
 ## Overview / Purpose  
 
 `biostat-tfl-compare` is designed to support statisticians (and programmers) in efficiently reviewing RTF outputs.  
