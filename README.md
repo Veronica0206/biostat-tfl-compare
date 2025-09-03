@@ -49,7 +49,7 @@ By providing side-by-side and bulk comparison of RTF files, this app helps ensur
 ### Setup  
 ```r
 # clone this repository
-git clone https://github.com/<your-username>/biostat-tfl-compare.git
+git clone https://github.com/Veronica0206/biostat-tfl-compare.git
 cd biostat-tfl-compare
 
 # open R or RStudio
