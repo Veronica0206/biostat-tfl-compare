@@ -38,8 +38,8 @@ By providing side-by-side and bulk comparison of RTF files, this app helps ensur
 
 ### Required packages  
 - `shiny`
-- `dplyr'
-- `shinyjs'
+- `dplyr`
+- `shinyjs`
 - `DT`  
 - `striprtf`  
 - `diffobj`  
