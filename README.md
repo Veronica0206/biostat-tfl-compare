@@ -33,7 +33,7 @@ By providing side-by-side and bulk comparison of RTF files, this app helps ensur
 ## Installation  
 
 ### Prerequisites  
-- R (≥ 4.2)  
+- R (≥ 4.5) 
 - RStudio (optional but recommended)  
 
 ### Required packages  
@@ -42,9 +42,15 @@ By providing side-by-side and bulk comparison of RTF files, this app helps ensur
 - `shinyjs`
 - `DT`  
 - `striprtf`  
-- `diffobj`  
+- `diffobj`
+- `tools`
 - `shinybusy`  
-- `shinyWidgets`  
+- `shinyWidgets`
+- `promises`
+- `future`
+- `future.apply`
+- `htmltools`
+
 
 ### Setup  
 ```r
@@ -54,7 +60,7 @@ cd biostat-tfl-compare
 
 # open R or RStudio
 # install required packages if not already available
-install.packages(c("shiny","dplyr",'shinyjs',"DT","striprtf","diffobj","shinybusy","shinyWidgets"))
+install.packages(c("shiny","dplyr",'shinyjs',"DT","striprtf","diffobj","tools","shinybusy","shinyWidgets","promises","future","future.apply","htmltools"))
 
 # run the app
 shiny::runApp(launch.browser = TRUE)
