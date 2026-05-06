@@ -1,0 +1,22 @@
+# Generated diff artifacts. These can contain real TFL content (potentially
+# sensitive clinical data) and must never be committed. The placeholder
+# ReadMeFirst.rtf in tfl_compare/rtf_diffs/ is whitelisted below.
+tfl_compare/rtf_diffs/*
+!tfl_compare/rtf_diffs/ReadMeFirst.rtf
+
+# Same rule for any rtf_diffs folder created elsewhere (custom output paths).
+**/rtf_diffs/*.diff.html
+**/rtf_diffs/*.diff.csv
+**/rtf_diffs/index.html
+
+# R session / build artifacts
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# OS
+.DS_Store
+Thumbs.db

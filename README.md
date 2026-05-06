@@ -62,5 +62,5 @@ cd biostat-tfl-compare
 # install required packages if not already available
 install.packages(c("shiny","dplyr",'shinyjs',"DT","striprtf","diffobj","tools","shinybusy","shinyWidgets","promises","future","future.apply","htmltools"))
 
-# run the app
-shiny::runApp(launch.browser = TRUE)
+# run the app (the Shiny app lives in the tfl_compare/ subfolder)
+shiny::runApp("tfl_compare", launch.browser = TRUE)

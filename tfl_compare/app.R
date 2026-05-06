@@ -64,15 +64,20 @@ empty_summary_df <- function() {
   )
 }
 
-# ---- Page splitter (detects page breaks from RTF \sect, formfeeds, or flexible page footers) ----
+# ---- Page splitter (detects page breaks from RTF \sect, formfeeds, or page footers) ----
 split_pages <- function(lines, idx) {
   pages <- list(); pidx <- list()
   cur <- character(0); cidx <- integer(0)
 
-  # Flexible regex: finds "page X of Y" anywhere on a line.
-  pat_page_footer_flexible <- "(?i)page\\s+\\d+\\s*(of\\s+\\d+)?"
-  # Stricter regex to catch dedicated page number lines without other text.
-  pat_page_footer_strict <- "(?i)^\\s*([a-z]+\\s+)*page\\s+\\d+\\s*(of\\s+\\d+)?\\s*$"
+  # A page-footer line is a *whole-line* match of "[optional words] page N [of M]".
+  # Anchored to ^...$ so prose like "see page 7 of the appendix" is not treated
+  # as a page break. Long lines are skipped — a real footer is short.
+  pat_page_footer <- "(?i)^\\s*([a-z]+\\s+)*page\\s+\\d+\\s*(of\\s+\\d+)?\\s*$"
+  pat_page_break  <- "(?i)^\\s*page\\s*break\\s*$"
+  is_page_footer <- function(ln) {
+    if (nchar(ln) > 80L) return(FALSE)
+    grepl(pat_page_footer, ln, perl = TRUE) || grepl(pat_page_break, ln, perl = TRUE)
+  }
 
   flush_page <- function() {
     if (length(cur)) {
@@ -91,11 +96,7 @@ split_pages <- function(lines, idx) {
   for (i in seq_along(lines)) {
     ln <- lines[i]
 
-    # Check for page break triggers. The flexible pattern is key here.
-    # If a line contains "page X...", it's treated as a delimiter and discarded.
-    if (grepl(pat_page_footer_strict, ln, perl = TRUE) ||
-        grepl(pat_page_footer_flexible, ln, perl = TRUE) ||
-        grepl("(?i)^\\s*page\\s*break\\s*$", ln, perl = TRUE)) {
+    if (is_page_footer(ln)) {
       flush_page()
       next
     }
@@ -127,15 +128,20 @@ normalize_keep_index <- function(
     per_page_ignore_top = 0L,
     per_page_ignore_bottom = 0L,
     drop_trailing_meta = TRUE,
+    # Patterns that identify a *whole-line* footer/meta line. Anchored to
+    # ^...$ so an in-cell date or a body line containing "/" is not stripped.
+    # The drop-trailing-meta loop walks lines from the bottom up and removes
+    # any line that matches; tightening the anchors avoids false trims of
+    # real table content.
     footer_patterns = c(
       "(?i)^\\s*([a-z]+\\s+)*page\\s+\\d+\\s*(of\\s+\\d+)?\\s*$",
-      "(?i)^(program|output|log|listing|path|directory|run|printed|created|generated|date|time)\\s*[:=].*$",
-      "((19|20)\\d{2}[-/.]\\d{1,2}[-/.]\\d{1,2})",
-      "(\\b\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{2,4}\\b)",
-      "(\\b\\d{1,2}:\\d{2}(:\\d{2})?\\b)",
-      "([A-Za-z]:\\\\[^\\r\\n]+)",
-      "(\\\\\\\\[^\\r\\n]+)",
-      "(/[^\\r\\n]+)"
+      "(?i)^\\s*(program|output|log|listing|path|directory|run|printed|created|generated|date|time)\\s*[:=].*$",
+      "^\\s*(19|20)\\d{2}[-/.]\\d{1,2}[-/.]\\d{1,2}\\s*$",
+      "^\\s*\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{2,4}\\s*$",
+      "^\\s*\\d{1,2}:\\d{2}(:\\d{2})?\\s*$",
+      "^\\s*[A-Za-z]:\\\\[^\\r\\n]+$",
+      "^\\s*\\\\\\\\[^\\r\\n]+$",
+      "^\\s*/[^\\r\\n[:space:]][^\\r\\n]*$"
     ),
     dehyphenate = TRUE,
     ignore_whitespace = TRUE
@@ -170,10 +176,13 @@ normalize_keep_index <- function(
   pages <- pg$lines
   pidx  <- pg$idx
 
-  kept_lines <- character(0)
-  kept_raw   <- integer(0)
-  kept_page  <- integer(0)
-  kept_lip   <- integer(0)
+  # Collect per-page slices into pre-allocated lists; concatenate once at the
+  # end. Avoids the quadratic-growth `c()`-in-loop pattern.
+  np <- length(pages)
+  kept_lines_l <- vector("list", np)
+  kept_raw_l   <- vector("list", np)
+  kept_page_l  <- vector("list", np)
+  kept_lip_l   <- vector("list", np)
 
   pat_footer <- paste(footer_patterns, collapse = "|")
 
@@ -182,15 +191,22 @@ normalize_keep_index <- function(
     idx   <- pidx [[p]]
     if (!length(lines)) next
 
-    while (length(lines) && !nzchar(lines[1])) { lines <- lines[-1]; idx <- idx[-1] }
-    if (!length(lines)) next
-    while (length(lines) && !nzchar(tail(lines, 1))) { lines <- head(lines, -1); idx <- head(idx, -1) }
-    if (!length(lines)) next
+    # Trim leading/trailing blank lines via index slicing (no copy-per-line).
+    first <- 1L
+    while (first <= length(lines) && !nzchar(lines[first])) first <- first + 1L
+    last <- length(lines)
+    while (last >= first && !nzchar(lines[last])) last <- last - 1L
+    if (last < first) next
+    if (first > 1L || last < length(lines)) {
+      lines <- lines[first:last]
+      idx   <- idx  [first:last]
+    }
 
-    if (drop_trailing_meta && length(lines)) {
+    if (drop_trailing_meta) {
       i <- length(lines)
       while (i > 0 && grepl(pat_footer, lines[i], perl = TRUE)) i <- i - 1L
       if (i < length(lines)) {
+        if (i == 0L) next
         lines <- lines[seq_len(i)]
         idx   <- idx  [seq_len(i)]
       }
@@ -198,25 +214,33 @@ normalize_keep_index <- function(
 
     if (per_page_ignore_top > 0L && length(lines)) {
       k <- min(per_page_ignore_top, length(lines))
-      if (k > 0L) { lines <- lines[-seq_len(k)]; idx <- idx[-seq_len(k)] }
+      if (k >= length(lines)) next
+      lines <- lines[-seq_len(k)]
+      idx   <- idx  [-seq_len(k)]
     }
 
     if (per_page_ignore_bottom > 0L && length(lines)) {
-      if (length(lines) > per_page_ignore_bottom) {
-        lines <- head(lines, -per_page_ignore_bottom)
-        idx   <- head(idx,   -per_page_ignore_bottom)
-      } else {
-        lines <- character(0); idx <- integer(0)
-      }
+      if (length(lines) <= per_page_ignore_bottom) next
+      lines <- head(lines, -per_page_ignore_bottom)
+      idx   <- head(idx,   -per_page_ignore_bottom)
     }
 
     if (length(lines)) {
-      kept_lines <- c(kept_lines, lines)
-      kept_raw   <- c(kept_raw,   idx)
-      kept_page  <- c(kept_page,  rep.int(p, length(lines)))
-      kept_lip   <- c(kept_lip,   seq_len(length(lines)))
+      kept_lines_l[[p]] <- lines
+      kept_raw_l  [[p]] <- idx
+      kept_page_l [[p]] <- rep.int(p, length(lines))
+      kept_lip_l  [[p]] <- seq_len(length(lines))
     }
   }
+
+  kept_lines <- unlist(kept_lines_l, use.names = FALSE)
+  kept_raw   <- unlist(kept_raw_l,   use.names = FALSE)
+  kept_page  <- unlist(kept_page_l,  use.names = FALSE)
+  kept_lip   <- unlist(kept_lip_l,   use.names = FALSE)
+  if (is.null(kept_lines)) kept_lines <- character(0)
+  if (is.null(kept_raw))   kept_raw   <- integer(0)
+  if (is.null(kept_page))  kept_page  <- integer(0)
+  if (is.null(kept_lip))   kept_lip   <- integer(0)
 
   kept_clean <- seq_along(kept_lines)
 
@@ -248,35 +272,48 @@ make_segments <- function(lines, idx_clean, idx_raw, mode = c("paragraph","line"
     map_raw   <- idx_raw
 
   } else if (mode == "paragraph") {
-    segs <- character(0)
-    map_clean <- integer(0)
-    map_raw   <- integer(0)
-
-    n <- length(lines); i <- 1L
+    # Pre-allocate to an upper bound (each line is at most one paragraph),
+    # then trim. Avoids the quadratic-growth `c()`-in-loop pattern.
+    n <- length(lines)
+    segs_buf <- character(n)
+    mc_buf   <- integer(n)
+    mr_buf   <- integer(n)
+    seg_n <- 0L
+    i <- 1L
     while (i <= n) {
       while (i <= n && !nzchar(lines[i])) i <- i + 1L
       if (i > n) break
       start <- i
-      blk <- character(0)
-      while (i <= n && nzchar(lines[i])) { blk <- c(blk, lines[i]); i <- i + 1L }
-      segs      <- c(segs, paste(blk, collapse = "\n"))
-      map_clean <- c(map_clean, idx_clean[start])
-      map_raw   <- c(map_raw,   idx_raw[start])
+      while (i <= n && nzchar(lines[i])) i <- i + 1L
+      seg_n <- seg_n + 1L
+      segs_buf[seg_n] <- paste(lines[start:(i - 1L)], collapse = "\n")
+      mc_buf[seg_n]   <- idx_clean[start]
+      mr_buf[seg_n]   <- idx_raw[start]
     }
-    if (!length(segs)) { segs <- character(0); map_clean <- integer(0); map_raw <- integer(0) }
+    segs      <- segs_buf[seq_len(seg_n)]
+    map_clean <- mc_buf  [seq_len(seg_n)]
+    map_raw   <- mr_buf  [seq_len(seg_n)]
 
   } else { # token
-    tokens <- character(0); map_clean <- integer(0); map_raw <- integer(0)
-    for (k in seq_along(lines)) {
-      tks <- unlist(strsplit(lines[k], "\\s+", perl = TRUE))
+    n <- length(lines)
+    tokens_l <- vector("list", n)
+    mc_l     <- vector("list", n)
+    mr_l     <- vector("list", n)
+    for (k in seq_len(n)) {
+      tks <- strsplit(lines[k], "\\s+", perl = TRUE)[[1]]
       tks <- tks[nzchar(tks)]
       if (length(tks)) {
-        tokens    <- c(tokens, tks)
-        map_clean <- c(map_clean, rep(idx_clean[k], length(tks)))
-        map_raw   <- c(map_raw,   rep(idx_raw[k],   length(tks)))
+        tokens_l[[k]] <- tks
+        mc_l    [[k]] <- rep.int(idx_clean[k], length(tks))
+        mr_l    [[k]] <- rep.int(idx_raw[k],   length(tks))
       }
     }
-    segs <- tokens
+    segs      <- unlist(tokens_l, use.names = FALSE)
+    map_clean <- unlist(mc_l,     use.names = FALSE)
+    map_raw   <- unlist(mr_l,     use.names = FALSE)
+    if (is.null(segs))      segs      <- character(0)
+    if (is.null(map_clean)) map_clean <- integer(0)
+    if (is.null(map_raw))   map_raw   <- integer(0)
   }
 
   list(
@@ -288,9 +325,21 @@ make_segments <- function(lines, idx_clean, idx_raw, mode = c("paragraph","line"
 }
 
 # ---- LCS-based edit script ----
-lcs_edits <- function(a, b) {
+lcs_edits <- function(a, b, max_cells = 25e6) {
   n <- length(a); m <- length(b)
   if (!n && !m) return(data.frame(op=character(), i=integer(), j=integer(), stringsAsFactors = FALSE))
+  # The LCS DP table is an integer matrix of (n+1) x (m+1) cells; at 4 bytes
+  # per cell, 25M cells ~= 100MB. With multiple parallel workers each comparing
+  # large files this can exhaust memory and freeze the Shiny process. Bail
+  # early with an actionable error rather than crashing the worker.
+  cells <- as.numeric(n + 1L) * as.numeric(m + 1L)
+  if (cells > max_cells) {
+    stop(sprintf(
+      "Diff too large: LCS matrix would be %s x %s = %.1fM cells (limit %.1fM). Try a coarser granularity (line or paragraph instead of token), or split the file.",
+      format(n + 1L, big.mark = ","), format(m + 1L, big.mark = ","),
+      cells / 1e6, max_cells / 1e6
+    ))
+  }
   L <- matrix(0L, n + 1L, m + 1L)
   for (i in seq_len(n)) {
     ai <- a[i]
@@ -379,30 +428,55 @@ process_diffs_to_wide_format <- function(d) {
 }
 
 # HTML index writer ----
+# When `summary_df` is provided, the index lists ONLY the diff files referenced
+# by this run (looked up by basename of diff_path). This avoids including stale
+# `*.diff.html` from earlier runs that happen to share the output folder — a
+# real risk for QC use, where an old "Different" report could be re-presented
+# alongside a new run that no longer flags that file.
+# Hrefs are URL-encoded, labels are HTML-escaped.
 write_diff_index <- function(diff_dir, summary_df = NULL,
                              title = "RTF Differences Index", filename = "index.html") {
   if (!dir.exists(diff_dir)) dir.create(diff_dir, recursive = TRUE, showWarnings = FALSE)
-  diff_files <- list.files(diff_dir, pattern = "\\.diff\\.html$", ignore.case = TRUE, full.names = FALSE)
-  n <- length(diff_files); now <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-  esc <- function(x){x<-gsub("&","&amp;",x,fixed=TRUE);x<-gsub("<","&lt;",x,fixed=TRUE);gsub(">","&gt;",x,fixed=TRUE)}
-  header <- if (!is.null(summary_df) && nrow(summary_df))
+  esc  <- htmltools::htmlEscape
+  uenc <- function(x) vapply(x, utils::URLencode, character(1), reserved = FALSE)
+  now <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+
+  if (!is.null(summary_df) && nrow(summary_df)) {
+    keep <- !is.na(summary_df$diff_path)
+    diff_files <- basename(summary_df$diff_path[keep])
+    sub_df <- summary_df[keep, , drop = FALSE]
+  } else {
+    diff_files <- list.files(diff_dir, pattern = "\\.diff\\.html$",
+                             ignore.case = TRUE, full.names = FALSE)
+    sub_df <- NULL
+  }
+  n <- length(diff_files)
+
+  header <- if (!is.null(sub_df))
     "<tr><th>#</th><th>Type</th><th>Status</th><th>Diff (HTML)</th><th>CSV</th></tr>"
   else "<tr><th>#</th><th>Diff file</th></tr>"
-  make_row <- function(f,i){
-    if (!is.null(summary_df) && nrow(summary_df)) {
-      row <- summary_df[ basename(summary_df$diff_path) == basename(f), , drop = FALSE]
-      typ <- if (nrow(row)) row$type[1] else ""; stat <- if (nrow(row)) row$status[1] else "Different"
-      csv <- if (nrow(row) && !is.na(row$diff_csv[1]))
-        sprintf("<a href=\"%s\" download>csv</a>", basename(row$diff_csv[1])) else ""
-      sprintf("<tr><td>%d</td><td>%s</td><td>%s</td><td><a href=\"%s\" target=\"_blank\" rel=\"noopener\">%s</a></td><td>%s</td></tr>",
-              i, esc(typ), esc(stat), f, esc(basename(f)), csv)
+
+  make_row <- function(f, i) {
+    href_html <- uenc(f)
+    if (!is.null(sub_df)) {
+      row  <- sub_df[basename(sub_df$diff_path) == f, , drop = FALSE]
+      typ  <- if (nrow(row)) row$type[1]  else ""
+      stat <- if (nrow(row)) row$status[1] else "Different"
+      csv  <- if (nrow(row) && !is.na(row$diff_csv[1]))
+        sprintf('<a href="%s" download>csv</a>',
+                esc(uenc(basename(row$diff_csv[1])))) else ""
+      sprintf('<tr><td>%d</td><td>%s</td><td>%s</td><td><a href="%s" target="_blank" rel="noopener">%s</a></td><td>%s</td></tr>',
+              i, esc(typ), esc(stat), esc(href_html), esc(f), csv)
     } else {
-      sprintf("<tr><td>%d</td><td><a href=\"%s\" target=\"_blank\" rel=\"noopener\">%s</a></td></tr>", i, f, esc(basename(f)))
+      sprintf('<tr><td>%d</td><td><a href="%s" target="_blank" rel="noopener">%s</a></td></tr>',
+              i, esc(href_html), esc(f))
     }
   }
-  rows <- if (n) paste0(vapply(seq_along(diff_files), function(i) make_row(diff_files[i], i),
-                               character(1)), collapse="\n")
+  rows <- if (n) paste0(vapply(seq_along(diff_files),
+                               function(i) make_row(diff_files[i], i),
+                               character(1)), collapse = "\n")
   else "<tr><td colspan='5'><em>No diff artifacts found.</em></td></tr>"
+
   html <- sprintf(
     '<!doctype html><html><head><meta charset="utf-8"><title>%s</title>
 <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px}
@@ -410,8 +484,11 @@ table{border-collapse:collapse;width:100%%}th,td{border:1px solid #ddd;padding:8
 th{background:#f6f6f6;text-align:left}tr:nth-child(even){background:#fafafa}.meta{color:#666;margin-bottom:12px}</style>
 </head><body><h1>%s</h1><div class="meta">Generated: %s • Directory: %s • Files: %d</div>
 <table><thead>%s</thead><tbody>%s</tbody></table></body></html>',
-    title, title, now, normalizePath(diff_dir, winslash="/"), n, header, rows)
-  out <- file.path(diff_dir, filename); writeLines(html, out, useBytes = TRUE); out
+    esc(title), esc(title), esc(now),
+    esc(normalizePath(diff_dir, winslash = "/")), n, header, rows)
+  out <- file.path(diff_dir, filename)
+  writeLines(html, out, useBytes = TRUE)
+  out
 }
 
 # ----- Pairwise compare (page-aware; clean+raw positions) -----
@@ -424,29 +501,23 @@ compare_two_rtfs <- function(file_a, file_b,
                              ignore_whitespace = TRUE) {
   compare_mode <- match.arg(compare_mode)
 
-  # NEW: Robust, two-stage pre-processing to handle all page break types
+  # Two-stage pre-processing: replace RTF page-break control words with a
+  # placeholder that survives striprtf, then swap the placeholder for \f.
+  # Match only \page and \sect (not \sectd, which is a section-formatting reset
+  # and is emitted mid-document by many writers).
   read_and_preprocess_rtf <- function(file_path) {
-    # Read the entire file as a single raw string.
     raw_content <- readChar(file_path, nchars = file.size(file_path), useBytes = TRUE)
-
-    # Step 1: Replace RTF page break commands with a unique text placeholder.
-    # This placeholder is designed to survive the RTF-to-text conversion regardless of its location.
     page_break_placeholder <- "_!!_RTF_PAGE_BREAK_!!_"
-    processed_content <- gsub("\\\\(page|sectd?)\\b", page_break_placeholder, raw_content, perl = TRUE)
+    processed_content <- gsub("\\\\(page|sect)\\b", page_break_placeholder, raw_content, perl = TRUE)
 
-    # Use a temporary file to pass the modified RTF content to read_rtf.
+    # Write byte-for-byte (no trailing newline, no OS line-ending translation)
+    # so striprtf parses the same bytes we generated.
     tmp_file <- tempfile(fileext = ".rtf")
-    on.exit(unlink(tmp_file), add = TRUE) # Ensure cleanup
-    writeLines(processed_content, tmp_file, useBytes = TRUE)
+    on.exit(unlink(tmp_file), add = TRUE)
+    writeChar(processed_content, tmp_file, eos = NULL, useBytes = TRUE)
 
-    # Step 2: Convert the modified RTF to plain text. The placeholder will be preserved.
     text_with_placeholder <- striprtf::read_rtf(tmp_file)
-
-    # Step 3: Replace the text placeholder with a form-feed character (\f).
-    # This creates a clean, reliable delimiter for our page splitting logic.
-    final_text <- gsub(page_break_placeholder, "\f", text_with_placeholder, fixed = TRUE)
-
-    return(final_text)
+    gsub(page_break_placeholder, "\f", text_with_placeholder, fixed = TRUE)
   }
 
   ta_raw <- read_and_preprocess_rtf(file_a)
@@ -664,12 +735,26 @@ server <- function(input, output, session) {
     current_alias(alias)
   }
 
-  # restore plan on end (defensive)
-  session$onSessionEnded(function(...) {
-    try(future::plan(sequential), silent = TRUE)
-  })
+  # NB: do not reset future::plan() in onSessionEnded — plan() is process-global
+  # and resetting it on disconnect would kill parallelism for other users in a
+  # multi-session deployment. The on.exit(plan(old_plan)) in runDir is enough.
 
   rv <- reactiveValues(summary_df = empty_summary_df(), results_done = 0L, total_files = 0L, pair_results = NULL)
+
+  # Build a sanitized <a> tag for a server-side path under the session alias.
+  # URL-encodes the basename (so quotes/brackets in filenames cannot break out
+  # of the href attribute) and HTML-escapes the visible label.
+  artifact_link <- function(alias, paths, label, download = FALSE) {
+    enc <- vapply(basename(paths), function(s) {
+      if (is.na(s)) NA_character_ else utils::URLencode(s, reserved = FALSE)
+    }, character(1))
+    href <- file.path(alias, enc)
+    extra <- if (download) "download rel='noopener'" else "target='_blank' rel='noopener'"
+    ifelse(is.na(paths), NA_character_,
+           sprintf("<a href=\"%s\" %s>%s</a>",
+                   htmltools::htmlEscape(href, attribute = TRUE),
+                   extra, htmltools::htmlEscape(label)))
+  }
 
   chunk_indices <- function(n, k) {
     if (n <= 0) return(list())
@@ -804,7 +889,6 @@ server <- function(input, output, session) {
     idx_chunks <- chunk_indices(total, batch_size)
 
     for (b in seq_along(idx_chunks)) {
-      Sys.sleep(0.05)
       batch_indices <- idx_chunks[[b]]
       batch_pairs <- file_pairs[batch_indices]
 
@@ -864,19 +948,8 @@ server <- function(input, output, session) {
     alias <- current_alias() %||% paste0("rtf_diffs_", session$token)
     df2 <- df[, needed, drop = FALSE]
 
-    df2$diff_path <- ifelse(
-      is.na(df2$diff_path), NA,
-      {
-        fname <- utils::URLencode(basename(df2$diff_path))
-        href  <- file.path(alias, fname)
-        sprintf("<a href='%s' target='_blank' rel='noopener'>open</a>", href)
-      }
-    )
-    df2$diff_csv <- ifelse(
-      is.na(df2$diff_csv), NA,
-      sprintf("<a href='%s' download rel='noopener'>csv</a>",
-              file.path(alias, basename(df2$diff_csv)))
-    )
+    df2$diff_path <- artifact_link(alias, df2$diff_path, "open")
+    df2$diff_csv  <- artifact_link(alias, df2$diff_csv,  "csv", download = TRUE)
 
     datatable(df2, escape = FALSE, options = list(pageLength = 25, scrollX = TRUE))
   })
@@ -891,16 +964,8 @@ server <- function(input, output, session) {
                 select = c("file","type","status","diff_path","diff_csv","note"))
 
     alias <- current_alias() %||% paste0("rtf_diffs_", session$token)
-    d$diff_path <- ifelse(
-      is.na(d$diff_path), NA,
-      sprintf("<a href='%s' target='_blank' rel='noopener'>open</a>",
-              file.path(alias, basename(d$diff_path)))
-    )
-    d$diff_csv <- ifelse(
-      is.na(d$diff_csv), NA,
-      sprintf("<a href='%s' download rel='noopener'>csv</a>",
-              file.path(alias, basename(d$diff_csv)))
-    )
+    d$diff_path <- artifact_link(alias, d$diff_path, "open")
+    d$diff_csv  <- artifact_link(alias, d$diff_csv,  "csv", download = TRUE)
 
     datatable(d, escape = FALSE, options = list(pageLength = 25, scrollX = TRUE))
   })
@@ -910,11 +975,8 @@ server <- function(input, output, session) {
     req(!is.null(df))
     idx <- attr(df, "index_path")
     if (!is.null(idx) && file.exists(idx)) {
-      tags$p(HTML(sprintf(
-        "Index: <a href='%s' target='_blank' rel='noopener'>%s</a>",
-        file.path(current_alias() %||% paste0("rtf_diffs_", session$token), basename(idx)),
-        basename(idx)
-      )))
+      alias <- current_alias() %||% paste0("rtf_diffs_", session$token)
+      tags$p(HTML(paste0("Index: ", artifact_link(alias, idx, basename(idx)))))
     }
   })
 
@@ -936,21 +998,17 @@ server <- function(input, output, session) {
 
   # ---------------- Pairwise Compare ----------------
   observeEvent(input$runPair, {
+    # Bind diff dir as a Shiny resource path so the "open" links resolve.
     fn <- sanitize_path(input$pairDiffHtml)
     if (nzchar(fn)) {
       d <- dirname(fn)
       if (!dir.exists(d)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
       bindDiffDir(d)
     }
-  })
 
-  observeEvent(input$runPair, {
     fa <- sanitize_path(input$fileA); fb <- sanitize_path(input$fileB)
     if (!file.exists(fa)) { showNotification(paste("File A not found:", fa), type="error", duration=5); return(NULL) }
     if (!file.exists(fb)) { showNotification(paste("File B not found:", fb), type="error", duration=5); return(NULL) }
-
-    old_plan <- future::plan()
-    on.exit(future::plan(old_plan), add = TRUE)
 
     out <- tryCatch({
       compare_two_rtfs(
@@ -1005,14 +1063,7 @@ server <- function(input, output, session) {
     r <- rv$pair_results; if (is.null(r)) return(NULL)
     df <- r$summary_like[, c("file","type","status","diff_path","note")]
     alias <- current_alias() %||% paste0("rtf_diffs_", session$token)
-    df$diff_path <- ifelse(
-      is.na(df$diff_path), NA,
-      {
-        fname <- utils::URLencode(basename(df$diff_path))
-        href  <- file.path(alias, fname)
-        sprintf("<a href='%s' target='_blank' rel='noopener'>open</a>", href)
-      }
-    )
+    df$diff_path <- artifact_link(alias, df$diff_path, "open")
     datatable(df, escape = FALSE, options = list(dom = 't', paging = FALSE, scrollX = TRUE))
   })
 
@@ -1036,9 +1087,8 @@ server <- function(input, output, session) {
     r <- rv$pair_results; if (is.null(r)) return(NULL)
     idx <- attr(r, "index_path")
     if (!is.null(idx) && file.exists(idx)) {
-      tags$p(HTML(sprintf("Index: <a href='%s' target='_blank' rel='noopener'>%s</a>",
-                          file.path(current_alias() %||% paste0("rtf_diffs_", session$token), basename(idx)),
-                          basename(idx))))
+      alias <- current_alias() %||% paste0("rtf_diffs_", session$token)
+      tags$p(HTML(paste0("Index: ", artifact_link(alias, idx, basename(idx)))))
     }
   })
 
