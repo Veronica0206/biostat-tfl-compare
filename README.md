@@ -1,32 +1,55 @@
-# biostat-tfl-compare  
+# biostat-tfl-compare
 
-*A Shiny application for quality oversight of TFL outputs, enabling RTF file and directory comparisons with detailed HTML and CSV diff reports.*  
+[![GitHub repo](https://img.shields.io/badge/GitHub-biostat--tfl--compare-black)](https://github.com/Veronica0206/biostat-tfl-compare)
+[![R Shiny](https://img.shields.io/badge/R-Shiny-blue)](https://shiny.posit.co/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
----
+*A Shiny application for quality oversight of TFL outputs, enabling RTF file and directory comparisons with detailed HTML and CSV diff reports.*
 
-## Overview / Purpose  
+## Portfolio positioning
 
-`biostat-tfl-compare` is designed to support statisticians and programmers in efficiently reviewing RTF outputs.  
+`biostat-tfl-compare` is a regulated-workflow QC tool for reviewing clinical reporting outputs in RTF format. It supports statisticians, statistical programmers, and evidence-generation teams who need to compare TFLs across development cycles, production runs, vendor deliveries, or internal validation outputs.
 
-Although often used in the context of **clinical trial** TFLs, the app is equally applicable to **RWE** and **HEOR** deliverables, or any workflow where outputs are delivered in RTF format.  
+The app is especially relevant to clinical trial, RWE, and HEOR workflows where reviewers need traceable differences rather than informal side-by-side inspection. It reduces manual review burden by producing navigable HTML and CSV artifacts while preserving human review as the final decision point.
 
-By providing side-by-side and bulk comparison of RTF files, this app helps ensure consistency, accuracy, and transparency in reporting.  
+## Executive relevance
 
-### Example use cases  
-- **Check changes between deliverables** (e.g., dev vs. prod TFLs).  
-- **QC verification** — confirm that updates made during a programming cycle are correctly reflected in the outputs.  
-- **Vendor oversight** — compare CRO deliverables against internal runs to ensure alignment.  
-- **Audit readiness** — generate traceable HTML diff reports for regulatory or quality review.  
-- **Cross-functional communication** — provide reviewers (statisticians, medical writers, clinicians) with easy-to-read diff outputs instead of raw RTFs.  
+This project is a public example of how Statistics and programming review workflows can be standardized for repeated TFL comparison tasks across studies or therapeutic areas. It supports auditability and traceability by turning RTF file/folder comparisons into documented HTML and CSV artifacts with page-aware inspection. The tool assists human reviewers; it does not replace statistical programming QC, clinical interpretation, regulatory judgment, or final sign-off.
 
----
+## For hiring reviewers
 
-## Features  
+This project demonstrates:
 
-- **File-level comparison** — side-by-side review of two RTF files with detailed HTML diff reports.  
-- **Folder-level comparison** — bulk comparison of two directories, matching files by name and highlighting differences in content, structure, or formatting.  
-- **Diff artifacts** — generates interactive HTML reports, CSV summaries, and an optional `index.html` linking all differences.  
-- **Interactive UI** — Shiny app with progress indicators, download buttons, and dynamic tables for easy navigation.  
+- practical software development for clinical trial and evidence-reporting workflows
+- QC automation for table, figure, and listing output review
+- R Shiny implementation with user-facing controls, progress indicators, downloads, and dynamic tables
+- regulated-document comparison logic for RTF outputs
+- vendor oversight and audit-readiness through traceable diff artifacts
+- page-aware line inspection and paragraph/line/token comparison modes
+
+## Overview / purpose
+
+Although often used in the context of clinical trial TFLs, the app is equally applicable to RWE and HEOR deliverables, or any workflow where outputs are delivered in RTF format.
+
+By providing side-by-side and bulk comparison of RTF files, this app helps ensure consistency, accuracy, and transparency in reporting.
+
+### Example use cases
+
+- **Check changes between deliverables:** compare development vs. production TFLs.
+- **QC verification:** confirm that programmed updates are reflected in output files.
+- **Vendor oversight:** compare CRO deliverables against internal runs.
+- **Audit readiness:** generate traceable HTML/CSV diff reports for regulatory or quality review.
+- **Cross-functional communication:** give statisticians, medical writers, clinicians, and reviewers readable diff artifacts instead of raw RTF comparisons.
+
+## Features
+
+- **File-level comparison:** side-by-side review of two RTF files with detailed HTML and CSV diff reports.
+- **Folder-level comparison:** bulk comparison of two directories, matching files by name and highlighting differences in content, structure, or formatting.
+- **Page-aware inspection:** detects RTF page breaks, form feeds, and page footer patterns, and reports page/line positions plus global line positions for differences.
+- **Granularity controls:** supports paragraph, line, and token comparison modes.
+- **Header/footer handling:** includes controls for ignoring per-page header/footer lines and dropping footer/meta lines.
+- **Diff artifacts:** generates interactive HTML reports, CSV summaries, and an optional `index.html` linking all differences.
+- **Interactive UI:** Shiny app with progress indicators, download buttons, resource links, and dynamic tables for navigation.
 
 ---
 
